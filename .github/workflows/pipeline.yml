@@ -1,92 +1,100 @@
-name: MLOps pipeline
+name: MLOps Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
+
+env:
+  PYTHON_VERSION: "3.10"
 
 jobs:
 
-  register-dataset:
+  mlops-pipeline:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Diagnostic: Print current working directory
-        run: pwd
-      - name: Diagnostic: List contents of mlops directory
-        run: ls -R mlops
-      - name: Diagnostic: Check mlops/data directory contents
-        run: |
-          if [ -d "mlops/data" ]; then
-            echo "mlops/data is a directory. Listing contents:"
-            ls -l mlops/data
-          else
-            echo "mlops/data is NOT a directory or does not exist."
-          fi
-      - name: Install Dependencies
-        run: pip install -r mlops/requirements.txt
-      - name: Upload Dataset to Hugging Face Hub
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python mlops/model_building/data_register.py
+    # -----------------------------
+    # 1. Checkout Code
+    # -----------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-  data-prep:
-    needs: register-dataset
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install Dependencies
-        run: pip install -r mlops/requirements.txt
-      - name: Run Data Preparation
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python mlops/model_building/prep.py
+    # -----------------------------
+    # 2. Setup Python
+    # -----------------------------
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
 
-  data-validation:
-    needs: data-prep
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install Dependencies
-        run: pip install -r mlops/requirements.txt
-      - name: Run Data Validation
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python mlops/tests/data_validation.py
+    # -----------------------------
+    # 3. Install Dependencies
+    # -----------------------------
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r mlops/requirements.txt
 
+    # -----------------------------
+    # 4. Verify Hugging Face Token
+    # -----------------------------
+    - name: Verify HF token
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      run: |
+        if [ -z "$HF_TOKEN" ]; then
+          echo "❌ HF_TOKEN is missing"
+          exit 1
+        else
+          echo "✅ HF_TOKEN detected"
+        fi
 
-  model-traning:
-    needs: data-validation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install Dependencies
-        run: pip install -r mlops/requirements.txt
-      - name: Model Building
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python mlops/model_building/train.py
+    # -----------------------------
+    # 5. Register Dataset
+    # -----------------------------
+    - name: Register dataset to Hugging Face
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      run: |
+        python mlops/model_building/data_register.py
 
-  model-testing:
-    needs: model-traning
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install Dependencies
-        run: pip install -r mlops/requirements.txt
-      - name: Run Model Testing
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python mlops/tests/model_testing.py
+    # -----------------------------
+    # 6. Data Preparation
+    # -----------------------------
+    - name: Data preparation
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      run: |
+        python mlops/model_building/prep.py
 
+    # -----------------------------
+    # 7. Data Validation
+    # -----------------------------
+    - name: Data validation
+      run: |
+        python mlops/tests/data_validation.py
 
-  deploy-hosting:
-    runs-on: ubuntu-latest
-    needs: [model-traning, data-prep, register-dataset, data-validation, model-testing]
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install Dependencies
-        run: pip install -r mlops/requirements.txt
-      - name: Push files to Frontend Hugging Face Space
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python mlops/hosting/hosting.py
+    # -----------------------------
+    # 8. Model Training
+    # -----------------------------
+    - name: Model training
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      run: |
+        python mlops/model_building/train.py
+
+    # -----------------------------
+    # 9. Model Testing
+    # -----------------------------
+    - name: Model testing
+      run: |
+        python mlops/tests/model_testing.py
+
+    # -----------------------------
+    # 10. Deploy to Hugging Face Space
+    # -----------------------------
+    - name: Deploy to Hugging Face Space
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      run: |
+        python mlops/hosting/hosting.py
